@@ -31,6 +31,13 @@ const IGNORED_COLUMNS = [
   'puntuación', 'score'
 ];
 
+// Añadimos columnas de fecha/hora para excluir de la vista previa
+const DATE_TIME_COLUMNS = [
+  'marca temporal', 'fecha', 'hora', 'timestamp', 'time',
+  'fecha de inicio', 'fecha de finalización', 'fecha inicio', 'fecha fin',
+  'fecha de envío', 'fecha_envío', 'fecha envió'
+];
+
 const DEMOGRAPHIC_KEYWORDS = [
   'metodología', 'metodologia', 'docente', 'profesor', 'curso', 'asignatura', 'materia',
   'pead', 'modalidad', 'sede', 'carrera', 'programa',
@@ -64,6 +71,12 @@ function App() {
 
       if (jsonData.length > 0) {
         let headersList = Object.keys(jsonData[0]);
+
+        // Filtrar columnas de fecha/hora para no mostrarlas en la tabla
+        headersList = headersList.filter(header => {
+          const lower = header.toLowerCase();
+          return !DATE_TIME_COLUMNS.some(dateCol => lower.includes(dateCol));
+        });
 
         let courseCol = headersList.find(h => {
           const l = h.toLowerCase();
@@ -249,14 +262,15 @@ function App() {
 
   const chartData = getChartData();
 
+  // Filtrar headers para excluir también las columnas de fecha/hora de los filtros
   const filterableHeaders = headers.filter(h => {
     const lower = h.toLowerCase();
-    return !IGNORED_COLUMNS.some(w => lower.includes(w));
+    return !IGNORED_COLUMNS.some(w => lower.includes(w)) && !DATE_TIME_COLUMNS.some(d => lower.includes(d));
   });
 
   const demographicHeaders = headers.filter(h => {
     const lower = h.toLowerCase();
-    return DEMOGRAPHIC_KEYWORDS.some(kw => lower.includes(kw));
+    return DEMOGRAPHIC_KEYWORDS.some(kw => lower.includes(kw)) && !DATE_TIME_COLUMNS.some(d => lower.includes(d));
   });
 
   const questionHeaders = filterableHeaders.filter(h => !demographicHeaders.includes(h) && h !== 'Metodología');
@@ -723,11 +737,34 @@ function App() {
                   <tbody className="bg-white divide-y divide-blue-50">
                     {filteredData.slice(0, 100).map((row, idx) => (
                       <tr key={idx} className="hover:bg-blue-50 transition-colors">
-                        {headers.map(header => (
-                          <td key={header} className="px-4 py-2.5 text-sm text-slate-600">
-                            {row[header] !== undefined && row[header] !== null ? String(row[header]) : '-'}
-                           </td>
-                        ))}
+                        {headers.map(header => {
+                          let value = row[header];
+                          // Si es una fecha/hora, formatearla o mostrarla de manera legible
+                          if (value && (header.toLowerCase().includes('fecha') || header.toLowerCase().includes('hora') || header.toLowerCase().includes('timestamp'))) {
+                            // Intentar formatear la fecha si es un número de Excel
+                            if (typeof value === 'number') {
+                              try {
+                                const date = XLSX.SSF.parse_date_code(value);
+                                if (date) {
+                                  value = `${date.d}/${date.m}/${date.y}`;
+                                }
+                              } catch(e) {
+                                value = String(value);
+                              }
+                            } else {
+                              value = String(value);
+                            }
+                          } else if (value !== undefined && value !== null) {
+                            value = String(value);
+                          } else {
+                            value = '-';
+                          }
+                          return (
+                            <td key={header} className="px-4 py-2.5 text-sm text-slate-600">
+                              {value}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
