@@ -144,20 +144,17 @@ function App() {
     }
   };
 
-  // ========== FUNCIÓN PRINCIPAL FILTRADA - CORREGIDA ==========
+  // ========== FUNCIÓN PRINCIPAL FILTRADA ==========
   const filteredDatasets = useMemo(() => {
     return datasets.map(dataset => {
-      // 1. APLICAR FILTROS A LAS RESPUESTAS
       let filteredResponses = [...dataset.originalData];
       Object.entries(activeFilters).forEach(([col, val]) => {
         filteredResponses = filteredResponses.filter(row => row[col] === val);
       });
 
-      // 2. MATRÍCULA COMPLETA (SIN FILTRAR) - para el denominador de la tasa
       const allEnrollment = dataset.enrollmentData ? [...dataset.enrollmentData] : null;
       let totalEnrollmentAll = allEnrollment ? allEnrollment.length : 0;
 
-      // 3. MATRÍCULA FILTRADA (para el desglose por docente/curso/pead)
       let filteredEnrollment = allEnrollment ? [...allEnrollment] : null;
       Object.entries(activeFilters).forEach(([col, val]) => {
         const colLower = col.toLowerCase();
@@ -170,7 +167,6 @@ function App() {
         }
       });
 
-      // 4. ESTADÍSTICAS
       let courseStats = {};
       let teacherStats = {};
       let teacherCoursePeadStats = {};
@@ -187,7 +183,6 @@ function App() {
         const studentTeacherMap = new Map();
         const studentPeadMap = new Map();
 
-        // Mapear estudiantes desde la matrícula COMPLETA
         allEnrollment.forEach(student => {
           let studentEmail = null;
           if (emailColEnrollment) {
@@ -207,7 +202,6 @@ function App() {
           }
         });
 
-        // Inicializar estadísticas por curso (con totales de matrícula COMPLETA)
         if (courseCol) {
           allEnrollment.forEach(student => {
             const course = student[courseCol] || 'Sin curso';
@@ -220,7 +214,6 @@ function App() {
           courseStats['Todos los cursos'] = { total: totalEnrollmentAll, responded: 0, respondedEmails: new Set() };
         }
 
-        // Inicializar estadísticas por docente (con totales de matrícula COMPLETA)
         if (teacherCol) {
           allEnrollment.forEach(student => {
             const teacher = student[teacherCol] || 'Sin docente';
@@ -231,7 +224,6 @@ function App() {
           });
         }
 
-        // Inicializar estadísticas DOCENTE + CURSO + PEAD (con totales de matrícula COMPLETA)
         if (courseCol && teacherCol && peadCol) {
           allEnrollment.forEach(student => {
             const course = student[courseCol] || 'Sin curso';
@@ -252,7 +244,6 @@ function App() {
           });
         }
 
-        // CONTAR RESPUESTAS (estudiantes únicos que respondieron)
         filteredResponses.forEach(row => {
           let email = null;
           if (emailColResponses) {
@@ -278,7 +269,6 @@ function App() {
             pead = studentPeadMap.get(email);
           }
 
-          // Solo contar si el docente coincide con el filtro (si hay filtro activo)
           let shouldCount = true;
           const teacherFilter = activeFilters['Docente'] || activeFilters['docente'] || activeFilters['Profesor'] || activeFilters['profesor'];
           if (teacherFilter && teacher !== teacherFilter) {
@@ -304,7 +294,6 @@ function App() {
           }
         });
 
-        // Limpiar los Sets
         Object.values(courseStats).forEach(stat => delete stat.respondedEmails);
         Object.values(teacherStats).forEach(stat => delete stat.respondedEmails);
         Object.values(teacherCoursePeadStats).forEach(stat => delete stat.respondedEmails);
@@ -314,7 +303,7 @@ function App() {
         ...dataset,
         filteredData: filteredResponses,
         filteredEnrollment: filteredEnrollment,
-        enrollmentCount: totalEnrollmentAll,  // ← USA LA MATRÍCULA COMPLETA (SIN FILTRAR)
+        enrollmentCount: totalEnrollmentAll,
         responseCount: totalResponses,
         hasEnrollmentData: allEnrollment && allEnrollment.length > 0,
         courseStats,
@@ -687,7 +676,18 @@ function App() {
     if (!title) return title;
     let cleaned = title.replace(/^\d+[).-]\s*/, '');
     cleaned = cleaned.replace(/^\d+\s+/, '');
+    cleaned = cleaned.replace(/[^\w\s\u00C0-\u00FF\u0600-\u06FF\u0E00-\u0E7FáéíóúñÑ¿¡\-.,:;()]/g, '');
     return cleaned.trim();
+  };
+
+  // Función para limpiar texto de caracteres extraños para el PDF
+  const cleanTextForPDF = (text) => {
+    if (!text) return '';
+    return text
+      .replace(/[^\x20-\x7E\u00C0-\u00FF\u0E00-\u0E7FáéíóúñÑ\s]/g, '')
+      .replace(/['\u2018\u2019]/g, "'")
+      .replace(/["\u201C\u201D]/g, '"')
+      .trim();
   };
 
   const generateFullReport = () => {
@@ -718,7 +718,7 @@ function App() {
           ? `Filtros aplicados: ${Object.entries(activeFilters).map(([k, v]) => `${k}: ${v}`).join(' | ')}`
           : 'Filtros: Ninguno (datos completos)';
 
-        const filteredLines = doc.splitTextToSize(filterText, 180);
+        const filteredLines = doc.splitTextToSize(cleanTextForPDF(filterText), 180);
         doc.text(filteredLines, 15, currentY);
         currentY += (filteredLines.length * 5) + 6;
 
@@ -726,14 +726,14 @@ function App() {
 
         filteredDatasets.forEach((ds) => {
           doc.setFillColor(238, 242, 255);
-          doc.rect(15, currentY - 3, 180, 35, 'F');
+          doc.rect(15, currentY - 3, 180, 28, 'F');
           doc.setDrawColor(67, 97, 238);
           doc.setLineWidth(0.5);
-          doc.rect(15, currentY - 3, 180, 35);
+          doc.rect(15, currentY - 3, 180, 28);
 
           doc.setFont(undefined, 'bold');
           doc.setTextColor(67, 97, 238);
-          doc.text(`Resumen: ${ds.name}`, 20, currentY + 2);
+          doc.text(cleanTextForPDF(ds.name), 20, currentY + 2);
           doc.setFont(undefined, 'normal');
           doc.setFontSize(9);
           doc.setTextColor(44, 62, 80);
@@ -742,17 +742,16 @@ function App() {
             ? ((ds.responseCount / ds.enrollmentCount) * 100).toFixed(1)
             : 0;
 
-          doc.text(`📊 Respuestas totales: ${ds.responseCount}`, 20, currentY + 9);
-          doc.text(`👥 Estudiantes matriculados: ${ds.enrollmentCount}`, 20, currentY + 16);
-          doc.text(`📈 Tasa de respuesta: ${responseRate}%`, 20, currentY + 23);
+          doc.text(`Respuestas: ${ds.responseCount} de ${ds.enrollmentCount} estudiantes matriculados`, 20, currentY + 9);
+          doc.text(`Tasa de respuesta: ${responseRate}%`, 20, currentY + 16);
 
           const tCount = ds.filteredData.filter(r => r['Metodología'] === 'Tradicional').length;
           const pCount = ds.filteredData.filter(r => r['Metodología'] === 'Protech XP').length;
           const tP = ds.filteredData.length ? ((tCount / ds.filteredData.length) * 100).toFixed(1) : 0;
           const pP = ds.filteredData.length ? ((pCount / ds.filteredData.length) * 100).toFixed(1) : 0;
 
-          doc.text(`🎓 Tradicional: ${tCount} (${tP}%)  |  🚀 Protech XP: ${pCount} (${pP}%)`, 20, currentY + 30);
-          currentY += 42;
+          doc.text(`Tradicional: ${tCount} (${tP}%)  |  Protech XP: ${pCount} (${pP}%)`, 20, currentY + 23);
+          currentY += 35;
         });
 
         currentY += 4;
@@ -770,31 +769,31 @@ function App() {
 
           if (labelsArray.length === 0) continue;
 
-          if (currentY > pageHeight - (isComparing ? 60 : 50)) {
+          if (currentY > pageHeight - (isComparing ? 50 : 45)) {
             doc.addPage();
             currentY = 20;
           }
 
           const cleanTitle = cleanQuestionTitle(question);
 
-          doc.setFontSize(12);
+          doc.setFontSize(11);
           doc.setTextColor(67, 97, 238);
           doc.setFont(undefined, 'bold');
-          const questionLines = doc.splitTextToSize(cleanTitle, 180);
+          const questionLines = doc.splitTextToSize(cleanTextForPDF(cleanTitle), 180);
           doc.text(questionLines, 15, currentY);
-          currentY += (questionLines.length * 6) + 4;
+          currentY += (questionLines.length * 5) + 4;
 
           doc.setFillColor(241, 245, 249);
           doc.rect(15, currentY, 180, 6, 'F');
           doc.setFontSize(8);
           doc.setFont(undefined, 'bold');
           doc.setTextColor(67, 97, 238);
-          doc.text("Opción", 17, currentY + 4);
+          doc.text("Opcion", 17, currentY + 4);
 
           if (isComparing) {
-            doc.text(filteredDatasets[0].name.substring(0, 10), 100, currentY + 4);
+            doc.text(cleanTextForPDF(filteredDatasets[0].name.substring(0, 10)), 100, currentY + 4);
             doc.text("Cant / %", 125, currentY + 4);
-            doc.text(filteredDatasets[1].name.substring(0, 10), 150, currentY + 4);
+            doc.text(cleanTextForPDF(filteredDatasets[1].name.substring(0, 10)), 150, currentY + 4);
             doc.text("Cant / %", 175, currentY + 4);
           } else {
             doc.text("Cantidad", 130, currentY + 4);
@@ -807,7 +806,7 @@ function App() {
           for (let j = 0; j < labelsArray.length; j++) {
             const label = labelsArray[j];
 
-            if (currentY > pageHeight - 20) {
+            if (currentY > pageHeight - 15) {
               doc.addPage();
               currentY = 20;
               doc.setFillColor(241, 245, 249);
@@ -815,11 +814,11 @@ function App() {
               doc.setFontSize(8);
               doc.setFont(undefined, 'bold');
               doc.setTextColor(67, 97, 238);
-              doc.text("Opción", 17, currentY + 4);
+              doc.text("Opcion", 17, currentY + 4);
               if (isComparing) {
-                doc.text(filteredDatasets[0].name.substring(0, 10), 100, currentY + 4);
+                doc.text(cleanTextForPDF(filteredDatasets[0].name.substring(0, 10)), 100, currentY + 4);
                 doc.text("Cant / %", 125, currentY + 4);
-                doc.text(filteredDatasets[1].name.substring(0, 10), 150, currentY + 4);
+                doc.text(cleanTextForPDF(filteredDatasets[1].name.substring(0, 10)), 150, currentY + 4);
                 doc.text("Cant / %", 175, currentY + 4);
               } else {
                 doc.text("Cantidad", 130, currentY + 4);
@@ -836,8 +835,8 @@ function App() {
             }
 
             const cleanLabel = cleanQuestionTitle(label);
-            const labelText = cleanLabel.length > (isComparing ? 40 : 50) ? cleanLabel.substring(0, isComparing ? 37 : 47) + '...' : cleanLabel;
-            doc.text(labelText, 17, currentY + 4);
+            const labelText = cleanLabel.length > (isComparing ? 35 : 45) ? cleanLabel.substring(0, isComparing ? 32 : 42) + '...' : cleanLabel;
+            doc.text(cleanTextForPDF(labelText), 17, currentY + 4);
 
             if (isComparing) {
               const count0 = allData[0] && allData[0].counts[label] ? allData[0].counts[label] : 0;
@@ -859,62 +858,13 @@ function App() {
             currentY += 5.5;
           }
 
-          const positiveKeywords = ['totalmente de acuerdo', 'de acuerdo', 'excelente', 'bueno', 'muy bueno', 'satisfecho', 'muy satisfecho', 'siempre', 'casi siempre'];
-
-          if (isComparing) {
-            let pos0 = 0; let total0 = 0; let pos1 = 0; let total1 = 0;
-            labelsArray.forEach(label => {
-              const lowerLabel = String(label).toLowerCase().trim();
-              const isPositive = positiveKeywords.some(kw => lowerLabel === kw || (lowerLabel.length > 5 && lowerLabel.includes(kw)));
-              const c0 = allData[0] && allData[0].counts[label] ? allData[0].counts[label] : 0;
-              const c1 = allData[1] && allData[1].counts[label] ? allData[1].counts[label] : 0;
-              if (isPositive) { pos0 += c0; pos1 += c1; }
-              total0 += c0; total1 += c1;
-            });
-
-            if (total0 > 0 || total1 > 0) {
-              const sat0 = total0 > 0 ? ((pos0 / total0) * 100).toFixed(1) : 0;
-              const sat1 = total1 > 0 ? ((pos1 / total1) * 100).toFixed(1) : 0;
-              if (parseFloat(sat0) > 0 || parseFloat(sat1) > 0) {
-                currentY += 3;
-                doc.setFontSize(9);
-                doc.setFont(undefined, 'bold');
-                doc.setTextColor(16, 185, 129);
-                doc.text(`✅ Satisfacción (${filteredDatasets[0].name.substring(0, 10)}): ${sat0}%`, 17, currentY);
-                doc.text(`✅ Satisfacción (${filteredDatasets[1].name.substring(0, 10)}): ${sat1}%`, 100, currentY);
-                currentY += 2;
-              }
-            }
-          } else {
-            let pos0 = 0; let total0 = 0;
-            labelsArray.forEach(label => {
-              const lowerLabel = String(label).toLowerCase().trim();
-              const isPositive = positiveKeywords.some(kw => lowerLabel === kw || (lowerLabel.length > 5 && lowerLabel.includes(kw)));
-              const c0 = allData[0] && allData[0].counts[label] ? allData[0].counts[label] : 0;
-              if (isPositive) pos0 += c0;
-              total0 += c0;
-            });
-
-            if (total0 > 0) {
-              const sat0 = ((pos0 / total0) * 100).toFixed(1);
-              if (parseFloat(sat0) > 0) {
-                currentY += 3;
-                doc.setFontSize(9);
-                doc.setFont(undefined, 'bold');
-                doc.setTextColor(16, 185, 129);
-                doc.text(`✅ Nivel de Satisfacción Positiva: ${sat0}%`, 17, currentY);
-                currentY += 2;
-              }
-            }
-          }
-
-          currentY += 7;
+          currentY += 4;
 
           if (i < questionHeaders.length - 1) {
             doc.setDrawColor(203, 213, 225);
             doc.setLineWidth(0.2);
             doc.line(15, currentY, 195, currentY);
-            currentY += 5;
+            currentY += 4;
           }
         }
 
@@ -1107,18 +1057,16 @@ function App() {
               })}
             </div>
 
-            {/* Desglose detallado - 3 TABLAS: CURSO, DOCENTE, DOCENTE+CURSO+PEAD */}
+            {/* Desglose detallado */}
             {showEnrollmentDetail && filteredDatasets.map((ds, idx) => {
               if (!ds.courseStats || Object.keys(ds.courseStats).length === 0) return null;
 
-              // Filtrar estadísticas por docente si hay filtro activo
               let filteredCourseStats = { ...ds.courseStats };
               let filteredTeacherStats = { ...ds.teacherStats };
               let filteredTeacherCoursePeadStats = { ...ds.teacherCoursePeadStats };
 
               const teacherFilter = activeFilters['Docente'] || activeFilters['docente'] || activeFilters['Profesor'] || activeFilters['profesor'];
               if (teacherFilter) {
-                // Filtrar courseStats - solo cursos de ese docente
                 const newCourseStats = {};
                 Object.entries(filteredTeacherCoursePeadStats).forEach(([key, value]) => {
                   if (value.teacher === teacherFilter) {
@@ -1131,14 +1079,12 @@ function App() {
                 });
                 filteredCourseStats = newCourseStats;
 
-                // Filtrar teacherStats
                 const newTeacherStats = {};
                 if (filteredTeacherStats[teacherFilter]) {
                   newTeacherStats[teacherFilter] = filteredTeacherStats[teacherFilter];
                 }
                 filteredTeacherStats = newTeacherStats;
 
-                // Filtrar teacherCoursePeadStats
                 const newTeacherCoursePeadStats = {};
                 Object.entries(filteredTeacherCoursePeadStats).forEach(([key, value]) => {
                   if (value.teacher === teacherFilter) {
